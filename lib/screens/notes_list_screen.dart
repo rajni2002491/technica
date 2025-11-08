@@ -6,8 +6,10 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
+import '../services/rsa_encryption.dart';
 import 'note_edit_screen.dart';
 import 'login_screen.dart';
+import 'debug_data_screen.dart';
 
 class NotesListScreen extends StatefulWidget {
   const NotesListScreen({super.key});
@@ -18,6 +20,7 @@ class NotesListScreen extends StatefulWidget {
 
 class _NotesListScreenState extends State<NotesListScreen> {
   late final NoteStorage _noteStorage;
+  final RSAEncryption _encryption = RSAEncryption();
   Stream<List<Note>>? _notesStream;
 
   @override
@@ -38,17 +41,54 @@ class _NotesListScreenState extends State<NotesListScreen> {
           .where('user_id', isEqualTo: user.uid)
           .orderBy('updated_at', descending: true)
           .snapshots()
-          .map((snapshot) {
-        return snapshot.docs.map((doc) {
-          final data = doc.data();
-          return Note(
-            id: doc.id,
-            title: data['title'] ?? '',
-            content: data['content'] ?? '',
-            createdAt: (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
-            updatedAt: (data['updated_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
-          );
-        }).toList();
+          .asyncMap((snapshot) async {
+        final notes = <Note>[];
+        for (final doc in snapshot.docs) {
+          try {
+            final data = doc.data();
+            
+            // Decrypt title and content
+            // Support both encrypted and plain text (backward compatibility)
+            String decryptedTitle;
+            String decryptedContent;
+            
+            try {
+              // Try to decrypt (if encrypted)
+              if (data['encrypted_title'] != null && data['encrypted_title'].toString().isNotEmpty) {
+                decryptedTitle = await _encryption.decryptLargeText(data['encrypted_title']);
+              } else {
+                // Fallback to plain text (for existing notes)
+                decryptedTitle = data['title'] ?? '';
+              }
+              
+              if (data['encrypted_content'] != null && data['encrypted_content'].toString().isNotEmpty) {
+                decryptedContent = await _encryption.decryptLargeText(data['encrypted_content']);
+              } else {
+                // Fallback to plain text (for existing notes)
+                decryptedContent = data['content'] ?? '';
+              }
+            } catch (e) {
+              // If decryption fails, use plain text fallback
+              print('Decryption error in stream, using plain text: $e');
+              decryptedTitle = data['title'] ?? data['encrypted_title'] ?? '';
+              decryptedContent = data['content'] ?? data['encrypted_content'] ?? '';
+            }
+            
+            notes.add(
+              Note(
+                id: doc.id,
+                title: decryptedTitle,
+                content: decryptedContent,
+                createdAt: (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                updatedAt: (data['updated_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              ),
+            );
+          } catch (e) {
+            print('Error parsing note in stream: $e');
+            continue;
+          }
+        }
+        return notes;
       });
     }
   }
@@ -295,6 +335,25 @@ class _NotesListScreenState extends State<NotesListScreen> {
               titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
             ),
             actions: [
+              IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.storage_rounded, color: Colors.grey[700], size: 20),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const DebugDataScreen(),
+                    ),
+                  );
+                },
+                tooltip: 'View Database',
+              ),
               IconButton(
                 icon: Container(
                   padding: const EdgeInsets.all(8),

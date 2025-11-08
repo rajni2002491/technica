@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/note.dart';
+import 'rsa_encryption.dart';
 
 class NoteStorage {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final RSAEncryption _encryption = RSAEncryption();
 
   NoteStorage(this._firestore, this._auth);
 
@@ -28,11 +30,39 @@ class NoteStorage {
       for (final doc in querySnapshot.docs) {
         try {
           final data = doc.data();
+          
+          // Decrypt title and content
+          // Support both encrypted and plain text (backward compatibility)
+          String decryptedTitle;
+          String decryptedContent;
+          
+          try {
+            // Try to decrypt (if encrypted)
+            if (data['encrypted_title'] != null && data['encrypted_title'].toString().isNotEmpty) {
+              decryptedTitle = await _encryption.decryptLargeText(data['encrypted_title']);
+            } else {
+              // Fallback to plain text (for existing notes)
+              decryptedTitle = data['title'] ?? '';
+            }
+            
+            if (data['encrypted_content'] != null && data['encrypted_content'].toString().isNotEmpty) {
+              decryptedContent = await _encryption.decryptLargeText(data['encrypted_content']);
+            } else {
+              // Fallback to plain text (for existing notes)
+              decryptedContent = data['content'] ?? '';
+            }
+          } catch (e) {
+            // If decryption fails, use plain text fallback
+            print('Decryption error, using plain text: $e');
+            decryptedTitle = data['title'] ?? data['encrypted_title'] ?? '';
+            decryptedContent = data['content'] ?? data['encrypted_content'] ?? '';
+          }
+          
           notes.add(
             Note(
               id: doc.id,
-              title: data['title'] ?? '',
-              content: data['content'] ?? '',
+              title: decryptedTitle,
+              content: decryptedContent,
               createdAt:
                   (data['created_at'] as Timestamp?)?.toDate() ??
                   DateTime.now(),
@@ -54,10 +84,10 @@ class NoteStorage {
     }
   }
 
-  // Save a note (store normally without encryption)
+  // Save a note with RSA encryption
   // isUpdate: true if updating existing note, false if creating new note
   // Returns immediately for instant UI response, saves in background
-  void saveNote(Note note, {bool isUpdate = false}) {
+  void saveNote(Note note, {bool isUpdate = false}) async {
     try {
       final user = _auth.currentUser;
       if (user == null) {
@@ -66,13 +96,29 @@ class NoteStorage {
 
       final userId = user.uid;
 
-      // Store note data normally (no encryption)
+      // Encrypt title and content using RSA encryption
+      String encryptedTitle;
+      String encryptedContent;
+      
+      try {
+        encryptedTitle = await _encryption.encryptLargeText(note.title);
+        encryptedContent = await _encryption.encryptLargeText(note.content);
+      } catch (e) {
+        print('Encryption error: $e');
+        // If encryption fails, don't save (security issue)
+        return;
+      }
+
+      // Store encrypted note data
       final noteData = {
         'user_id': userId,
-        'title': note.title,
-        'content': note.content,
+        'encrypted_title': encryptedTitle,
+        'encrypted_content': encryptedContent,
         'created_at': Timestamp.fromDate(note.createdAt),
         'updated_at': Timestamp.fromDate(note.updatedAt),
+        // Keep plain text fields empty for security (or remove them)
+        'title': '', // Empty for security
+        'content': '', // Empty for security
       };
 
       // Fire-and-forget save - returns immediately
@@ -136,10 +182,37 @@ class NoteStorage {
         return null;
       }
 
+      // Decrypt title and content
+      // Support both encrypted and plain text (backward compatibility)
+      String decryptedTitle;
+      String decryptedContent;
+      
+      try {
+        // Try to decrypt (if encrypted)
+        if (data['encrypted_title'] != null && data['encrypted_title'].toString().isNotEmpty) {
+          decryptedTitle = await _encryption.decryptLargeText(data['encrypted_title']);
+        } else {
+          // Fallback to plain text (for existing notes)
+          decryptedTitle = data['title'] ?? '';
+        }
+        
+        if (data['encrypted_content'] != null && data['encrypted_content'].toString().isNotEmpty) {
+          decryptedContent = await _encryption.decryptLargeText(data['encrypted_content']);
+        } else {
+          // Fallback to plain text (for existing notes)
+          decryptedContent = data['content'] ?? '';
+        }
+      } catch (e) {
+        // If decryption fails, use plain text fallback
+        print('Decryption error, using plain text: $e');
+        decryptedTitle = data['title'] ?? data['encrypted_title'] ?? '';
+        decryptedContent = data['content'] ?? data['encrypted_content'] ?? '';
+      }
+
       return Note(
         id: doc.id,
-        title: data['title'] ?? '',
-        content: data['content'] ?? '',
+        title: decryptedTitle,
+        content: decryptedContent,
         createdAt:
             (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
         updatedAt:
