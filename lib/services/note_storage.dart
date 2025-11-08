@@ -1,12 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/note.dart';
-import 'rsa_encryption.dart';
 
 class NoteStorage {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
-  final RSAEncryption _encryption = RSAEncryption();
 
   NoteStorage(this._firestore, this._auth);
 
@@ -18,9 +16,11 @@ class NoteStorage {
         return [];
       }
 
+      final userId = user.uid;
+
       final querySnapshot = await _firestore
           .collection('notes')
-          .where('user_id', isEqualTo: user.uid)
+          .where('user_id', isEqualTo: userId)
           .orderBy('updated_at', descending: true)
           .get();
 
@@ -28,70 +28,75 @@ class NoteStorage {
       for (final doc in querySnapshot.docs) {
         try {
           final data = doc.data();
-          // Decrypt title and content
-          final decryptedTitle = data['encrypted_title'] != null
-              ? await _encryption.decryptLargeText(data['encrypted_title'])
-              : data['title'] ?? '';
-          final decryptedContent = data['encrypted_content'] != null
-              ? await _encryption.decryptLargeText(data['encrypted_content'])
-              : data['content'] ?? '';
-
           notes.add(
             Note(
               id: doc.id,
-              title: decryptedTitle,
-              content: decryptedContent,
-              createdAt: (data['created_at'] as Timestamp).toDate(),
-              updatedAt: (data['updated_at'] as Timestamp).toDate(),
+              title: data['title'] ?? '',
+              content: data['content'] ?? '',
+              createdAt:
+                  (data['created_at'] as Timestamp?)?.toDate() ??
+                  DateTime.now(),
+              updatedAt:
+                  (data['updated_at'] as Timestamp?)?.toDate() ??
+                  DateTime.now(),
             ),
           );
         } catch (e) {
-          // Skip notes that can't be decrypted
+          print('Error parsing note: $e');
           continue;
         }
       }
 
       return notes;
     } catch (e) {
+      print('Error getting notes: $e');
       return [];
     }
   }
 
-  // Save a note
-  Future<bool> saveNote(Note note) async {
+  // Save a note (store normally without encryption)
+  // isUpdate: true if updating existing note, false if creating new note
+  // Returns immediately for instant UI response, saves in background
+  void saveNote(Note note, {bool isUpdate = false}) {
     try {
       final user = _auth.currentUser;
       if (user == null) {
-        return false;
+        return;
       }
 
-      // Encrypt title and content
-      final encryptedTitle = await _encryption.encryptLargeText(note.title);
-      final encryptedContent = await _encryption.encryptLargeText(note.content);
+      final userId = user.uid;
 
+      // Store note data normally (no encryption)
       final noteData = {
-        'user_id': user.uid,
-        'encrypted_title': encryptedTitle,
-        'encrypted_content': encryptedContent,
+        'user_id': userId,
+        'title': note.title,
+        'content': note.content,
         'created_at': Timestamp.fromDate(note.createdAt),
         'updated_at': Timestamp.fromDate(note.updatedAt),
       };
 
-      // Check if note exists
-      final docRef = _firestore.collection('notes').doc(note.id);
-      final doc = await docRef.get();
-
-      if (doc.exists) {
-        // Update existing note
-        await docRef.update(noteData);
+      // Fire-and-forget save - returns immediately
+      // Firestore persistence saves to local cache instantly
+      // The stream listener will automatically update the UI
+      if (isUpdate && note.id.isNotEmpty) {
+        // Update existing note - use set with merge for better offline support
+        _firestore
+            .collection('notes')
+            .doc(note.id)
+            .set(noteData, SetOptions(merge: true));
+      } else if (note.id.isNotEmpty) {
+        // New note with specified ID
+        _firestore
+            .collection('notes')
+            .doc(note.id)
+            .set(noteData, SetOptions(merge: true));
       } else {
-        // Insert new note
-        await docRef.set(noteData);
+        // New note - let Firestore generate the ID
+        _firestore.collection('notes').add(noteData);
       }
-
-      return true;
     } catch (e) {
-      return false;
+      print('Error saving note: $e');
+      // Errors are handled silently - stream will show the actual state
     }
   }
 
@@ -107,6 +112,7 @@ class NoteStorage {
 
       return true;
     } catch (e) {
+      print('Error deleting note: $e');
       return false;
     }
   }
@@ -125,28 +131,22 @@ class NoteStorage {
         return null;
       }
 
-      final data = doc.data()!;
-      // Verify note belongs to user
-      if (data['user_id'] != user.uid) {
+      final data = doc.data();
+      if (data == null) {
         return null;
       }
 
-      // Decrypt title and content
-      final decryptedTitle = data['encrypted_title'] != null
-          ? await _encryption.decryptLargeText(data['encrypted_title'])
-          : data['title'] ?? '';
-      final decryptedContent = data['encrypted_content'] != null
-          ? await _encryption.decryptLargeText(data['encrypted_content'])
-          : data['content'] ?? '';
-
       return Note(
         id: doc.id,
-        title: decryptedTitle,
-        content: decryptedContent,
-        createdAt: (data['created_at'] as Timestamp).toDate(),
-        updatedAt: (data['updated_at'] as Timestamp).toDate(),
+        title: data['title'] ?? '',
+        content: data['content'] ?? '',
+        createdAt:
+            (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        updatedAt:
+            (data['updated_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
       );
     } catch (e) {
+      print('Error getting note: $e');
       return null;
     }
   }
