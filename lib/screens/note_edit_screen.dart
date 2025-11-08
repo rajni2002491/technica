@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
 
@@ -13,7 +15,7 @@ class NoteEditScreen extends StatefulWidget {
 }
 
 class _NoteEditScreenState extends State<NoteEditScreen> {
-  final NoteStorage _noteStorage = NoteStorage();
+  late final NoteStorage _noteStorage;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
   bool _isSaving = false;
@@ -21,6 +23,10 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   @override
   void initState() {
     super.initState();
+    _noteStorage = NoteStorage(
+      FirebaseFirestore.instance,
+      FirebaseAuth.instance,
+    );
     if (widget.note != null) {
       _titleController.text = widget.note!.title;
       _contentController.text = widget.note!.content;

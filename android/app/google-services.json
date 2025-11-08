@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "500817817619",
+    "project_id": "technica-148c0",
+    "storage_bucket": "technica-148c0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:500817817619:android:1d671d0cccebdbff6a8fe6",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyByp10dVzFukywe2mBTRmMIt8QZwqxvnlQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

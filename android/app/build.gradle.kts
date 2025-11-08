@@ -3,6 +3,7 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -37,6 +38,17 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    // Import the Firebase BoM
+    implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
+    
+    // Firebase Analytics
+    implementation("com.google.firebase:firebase-analytics")
+    
+    // Firebase Authentication and Firestore are handled by Flutter plugins
+    // No need to add them here as they're managed by FlutterFire
 }
 
 flutter {

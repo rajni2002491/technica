@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/note.dart';
 import '../services/note_storage.dart';
 import 'note_edit_screen.dart';
+import 'login_screen.dart';
 
 class NotesListScreen extends StatefulWidget {
   const NotesListScreen({super.key});
@@ -12,14 +15,48 @@ class NotesListScreen extends StatefulWidget {
 }
 
 class _NotesListScreenState extends State<NotesListScreen> {
-  final NoteStorage _noteStorage = NoteStorage();
+  late final NoteStorage _noteStorage;
   List<Note> _notes = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _noteStorage = NoteStorage(
+      FirebaseFirestore.instance,
+      FirebaseAuth.instance,
+    );
     _loadNotes();
+  }
+
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
+    }
   }
 
   Future<void> _loadNotes() async {
@@ -106,6 +143,13 @@ class _NotesListScreenState extends State<NotesListScreen> {
         title: const Text('Notepad'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+            tooltip: 'Logout',
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
